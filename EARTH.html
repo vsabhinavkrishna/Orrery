@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Earth with Moon and Orbits</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; }
+        .control-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1;
+            color: white;
+        }
+        .control-panel label {
+            display: block;
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="control-panel">
+        <label for="speedControl">Speed</label>
+        <input type="range" id="speedControl" min="0" max="100" value="7">
+        <label for="cameraX">Cam.X</label>
+        <input type="range" id="cameraX" min="-50" max="50" value="0">
+        <label for="cameraY">Cam.Y</label>
+        <input type="range" id="cameraY" min="0" max="100" value="33">
+        <label for="cameraZ">Cam.Z</label>
+        <input type="range" id="cameraZ" min="-50" max="50" value="-50">
+        <label for="zoom">Zoom</label>
+        <input type="range" id="zoom" min="10" max="100" value="30">
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Scene setup
+        try {
+            const scene = new THREE.Scene();
+            const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            const renderer = new THREE.WebGLRenderer();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Create the sphere (Earth)
+            const earthGeometry = new THREE.SphereGeometry(5, 32, 32); 
+            const earthTextureLoader = new THREE.TextureLoader();
+            let earth;
+
+            earthTextureLoader.load('https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Blue_Marble_2002.png/1280px-Blue_Marble_2002.png', (texture) => {
+                const earthMaterial = new THREE.MeshBasicMaterial({ map: texture });
+                earth = new THREE.Mesh(earthGeometry, earthMaterial);
+                earth.rotation.x = Math.PI / 6; 
+                scene.add(earth);
+            }, undefined, (error) => {
+                console.error('Error loading texture:', error);
+            });
+
+            // Camera position
+            camera.position.z = 10;
+
+            // Satellites and labels
+            const satellites = [];
+            const satelliteData = [
+                { name: 'ISS', radius: 6, color: 0xff0000, speed: 0.005 },
+                { name: 'GPS', radius: 12, color: 0x00ff00, speed: 0.01 },
+                { name: 'DirecTV', radius: 15, color: 0x0000ff, speed: 0.015 },
+                { name: 'Hubble', radius: 8, color: 0xffff00, speed: 0.01 },
+                { name: 'Glonass', radius: 14, color: 0x00ffff, speed: 0.01 },
+                { name: 'Intelsat', radius: 18, color: 0xff00ff, speed: 0.015 }
+            ];
+
+            satelliteData.forEach(data => {
+                const satGeometry = new THREE.SphereGeometry(0.2, 32, 32);
+                const satMaterial = new THREE.MeshBasicMaterial({ color: data.color });
+                const satellite = new THREE.Mesh(satGeometry, satMaterial);
+                satellite.userData = { radius: data.radius, speed: data.speed, angle: 0 };
+                satellites.push(satellite);
+                scene.add(satellite);
+
+                // Create orbit for satellite
+                const orbitGeometry = new THREE.RingGeometry(data.radius - 0.05, data.radius + 0.05, 64);
+                const orbitMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+                const orbit = new THREE.Mesh(orbitGeometry, orbitMaterial);
+                orbit.rotation.x = Math.PI / 2; // Make it flat
+                scene.add(orbit);
+
+                // Create label
+                const fontLoader = new THREE.FontLoader();
+                fontLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/fonts/helvetiker_bold.typeface.json', (font) => {
+                    const textGeometry = new THREE.TextGeometry(data.name, {
+                        font: font,
+                        size: 0.2,
+                        height: 0.01,
+                    });
+                    const textMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+                    const label = new THREE.Mesh(textGeometry, textMaterial);
+                    label.scale.set(-1, 1, 1); // Flip the label on the x-axis
+                    satellite.userData.label = label;
+                    scene.add(label);
+                });
+            });
+
+            // Create the Moon with texture and its orbit
+            const moonGeometry = new THREE.SphereGeometry(0.5, 32, 32);
+            const moonTextureLoader = new THREE.TextureLoader();
+            let moon;
+            moonTextureLoader.load('https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT5MQZS7B0LbbZ4LJgK-djWwW3oczycATcJ3w&s', (texture) => {
+                const moonMaterial = new THREE.MeshBasicMaterial({ map: texture });
+                moon = new THREE.Mesh(moonGeometry, moonMaterial);
+                moon.userData = { radius: 10, speed: 0.02, angle: 0 };
+                scene.add(moon);
+
+                // Create Moon orbit
+                const moonOrbitGeometry = new THREE.RingGeometry(24 - 0.05, 24 + 0.001, 10000);
+                const moonOrbitMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+                const moonOrbit = new THREE.Mesh(moonOrbitGeometry, moonOrbitMaterial);
+                moonOrbit.rotation.x = Math.PI / 2; // Make it flat
+                scene.add(moonOrbit);
+            }, undefined, (error) => {
+                console.error('Error loading moon texture:', error);
+            });
+
+            // Get slider values
+            const speedControlInput = document.getElementById('speedControl');
+            const cameraXInput = document.getElementById('cameraX');
+            const cameraYInput = document.getElementById('cameraY');
+            const cameraZInput = document.getElementById('cameraZ');
+            const zoomInput = document.getElementById('zoom');
+            
+            let speedControlValue = parseFloat(speedControlInput.value);
+            let cameraXValue = parseFloat(cameraXInput.value);
+            let cameraYValue = parseFloat(cameraYInput.value );
+            let cameraZValue = parseFloat(cameraZInput.value);
+            let zoomValue = parseFloat(zoomInput.value);
+        
+            // Update slider values
+            speedControlInput.addEventListener('input', () => {
+                speedControlValue = parseFloat(speedControlInput.value);
+            });
+            cameraXInput.addEventListener('input', () => {
+                cameraXValue = parseFloat(cameraXInput.value);
+            });
+            cameraYInput.addEventListener('input', () => {
+                cameraYValue = parseFloat(cameraYInput.value);
+            });
+            cameraZInput.addEventListener('input', () => {
+                cameraZValue = parseFloat(cameraZInput.value);
+            });
+            zoomInput.addEventListener('input', () => {
+                zoomValue = parseFloat(zoomInput.value);
+            });
+
+            // Animation loop
+            function animate() {
+                requestAnimationFrame(animate);
+                
+                // Rotate the Earth
+                if (earth) {
+                    earth.rotation.y += -speedControlValue / 100; 
+                }
+
+                // Update camera position
+                camera.position.set(cameraXValue, cameraYValue, cameraZValue);
+                camera.fov = zoomValue;
+                camera.updateProjectionMatrix();
+                camera.lookAt(new THREE.Vector3(0, 0, 0));
+
+                // Update Moon position (orbiting the Earth)
+                if (moon && earth) {
+                    moon.userData.angle += moon.userData.speed;
+                    const moonOrbitRadius = 24; // Set the distance of Moon from Earth
+                    moon.position.set(
+                        earth.position.x + Math.cos(moon.userData.angle) * moonOrbitRadius,
+                        0,
+                        earth.position.z + Math.sin(moon.userData.angle) * moonOrbitRadius
+                    );
+                }
+
+                // Update satellites and their labels
+                satellites.forEach(satellite => {
+                    satellite.userData.angle += satellite.userData.speed;
+                    satellite.position.set(
+                        Math.cos(satellite.userData.angle) * satellite.userData.radius,
+                        0,
+                        Math.sin(satellite.userData.angle) * satellite.userData.radius
+                    );
+
+                    // Update label position near satellite
+                    if (satellite.userData.label) {
+                        satellite.userData.label.position.set(
+                            satellite.position.x,
+                            satellite.position.y + 0.5, // Adjust height above satellite
+                            satellite.position.z
+                        );
+                    }
+                });
+
+                renderer.render(scene, camera);
+            }
+
+            animate();
+
+            // Handle window resize
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        } catch (error) {
+            console.error('An error occurred in the main code block:', error);
+        }
+    </script>
+</body>
+</html>
